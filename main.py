@@ -5,9 +5,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import logging
 
-TOKEN = os.getenv("7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438")
-CHANNEL_ID = os.getenv("@paytoposts")  # example: "@yourchannelusername" or channel ID as int
-BASE_URL = os.getenv("https://intensive-esther-animeharbour-95b7971a.koyeb.app/")  # e.g., https://your-koyeb-app.koyeb.app
+TOKEN = os.getenv("BOT_TOKEN")
+CHANNEL_ID = os.getenv("CHANNEL_ID")
+BASE_URL = os.getenv("BASE_URL")
+
 
 # Prices
 PRICES = {
