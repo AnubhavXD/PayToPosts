@@ -9,7 +9,6 @@ TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 BASE_URL = os.getenv("BASE_URL")
 
-
 # Prices
 PRICES = {
     "text": 0.10,        # per character
@@ -75,7 +74,6 @@ async def simulate_payment_and_forward(update: Update, context: ContextTypes.DEF
     elif content_type == "sticker":
         await context.bot.send_sticker(chat_id=CHANNEL_ID, sticker=data["file_id"])
         await context.bot.send_message(chat_id=CHANNEL_ID, text=f"Sticker from @{username} ($7.00 paid via {method})")
-    # You can add more cases (voice, GIF etc.) similarly
 
 # Handle text
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,7 +101,7 @@ def index():
     return "Bot is running!"
 
 # Webhook route
-@app.route(f"/{TOKEN}", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot_app.bot)
     bot_app.update_queue.put_nowait(update)
@@ -121,5 +119,5 @@ if __name__ == '__main__':
     import asyncio
     setup_bot()
     asyncio.run(bot_app.initialize())
-    asyncio.run(bot_app.bot.set_webhook(f"{BASE_URL}/{TOKEN}"))
-    bot_app.run_webhook(listen="0.0.0.0", port=8000, webhook_path=f"/{TOKEN}")
+    asyncio.run(bot_app.bot.set_webhook(f"{BASE_URL}/webhook"))
+    bot_app.run_webhook(listen="0.0.0.0", port=8000, webhook_path="/webhook")
