@@ -127,25 +127,27 @@ async def post_init(app: Application):
 
 # Main entry
 if __name__ == "__main__":
-    import asyncio
     import threading
+    import asyncio
 
     setup_bot()
 
-    async def telegram_main():
+    async def start_bot():
         await bot_app.initialize()
         await post_init(bot_app)
         await bot_app.start()
-        await bot_app.updater.start_polling()  # Keeps bot alive
+        await bot_app.updater.start_polling()
+        await bot_app.updater.wait_until_closed()
 
-    def run_telegram_bot():
-        asyncio.run(telegram_main())
+    def run_flask():
+        app.run(host="0.0.0.0", port=8000)
 
-    # Start Telegram bot in a separate thread
-    threading.Thread(target=run_telegram_bot).start()
+    # Start Flask in a separate thread
+    threading.Thread(target=run_flask).start()
 
-    # Start Flask app (for Koyeb webhook)
-    app.run(host="0.0.0.0", port=8000)
+    # Run the bot in the main event loop
+    asyncio.run(start_bot())
+
 
 
 
