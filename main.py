@@ -1,171 +1,124 @@
+# main.py
 import os
-import threading
-from flask import Flask
-from telegram import Update
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler, filters, ContextTypes
-)
+from flask import Flask, request
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+import logging
 
-# Telegram Bot Token and Channel ID
-TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
-CHANNEL_ID = os.getenv("CHANNEL_ID", "@yourchannel")
+TOKEN = os.getenv("7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438")
+CHANNEL_ID = os.getenv("@paytoposts")  # example: "@yourchannelusername" or channel ID as int
+BASE_URL = os.getenv("https://intensive-esther-animeharbour-95b7971a.koyeb.app/")  # e.g., https://your-koyeb-app.koyeb.app
 
-# Prices in USDT
+# Prices
 PRICES = {
     "text": 0.10,        # per character
     "image": 7.00,
     "voice": 0.50,       # per second
     "gif": 7.00,
-    "video": 1.00,       # per second (min 5 USDT)
-    "sticker": 7.00,
+    "video": 1.00,       # per second (min $5.00)
+    "sticker": 7.00
 }
 
-# Dummy currency conversion: 1 Star = $0.01
-def usdt_to_stars(usdt):
-    return int(usdt / 0.01)
+logging.basicConfig(level=logging.INFO)
 
-# Util: Get user's @username or full name
-def get_user_mention(user):
-    return f"@{user.username}" if user.username else user.full_name
+app = Flask(__name__)
+
+bot_app = Application.builder().token(TOKEN).build()
 
 # Start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Welcome! Send any message or media to post it after simulated payment via Stars 💫 or USDT.")
-
-# Simulated payment preview
-async def request_payment(update, context, media_type, details, preview_fn):
-    cost_usdt = details.get("cost", 0)
-    cost_stars = usdt_to_stars(cost_usdt)
-    user = update.effective_user
-    username = get_user_mention(user)
-
-    msg = (
-        f"{username}, to post your {media_type}, you need to pay:\n\n"
-        f"💫 {cost_stars} Stars (simulated)\n"
-        f"💰 Or {cost_usdt:.2f} USDT (dummy)\n\n"
-        f"✅ Proceeding with simulated payment..."
+    message = (
+        "\U0001F916 *Welcome to PayToPosts Bot!*\n\n"
+        "You can send different types of content and pay in *USDT* or *Telegram Stars* before it's posted in our channel.\n\n"
+        "*Pricing:*\n"
+        "- Text: $0.10 per character\n"
+        "- Image: $7.00 each\n"
+        "- Voice Note: $0.50 per second\n"
+        "- GIF: $7.00 each\n"
+        "- Video: $1.00 per second (minimum $5.00)\n"
+        "- Sticker: $7.00 each\n\n"
+        "Select a payment method below to continue."
     )
+    keyboard = [[
+        InlineKeyboardButton("Pay with USDT", callback_data="pay_usdt"),
+        InlineKeyboardButton("Pay with Stars", callback_data="pay_stars")
+    ]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(message, reply_markup=reply_markup, parse_mode="Markdown")
 
-    await update.message.reply_text(msg)
-    await preview_fn()
+# Handle button selection
+async def payment_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    method = query.data.split("_")[1].upper()
+    context.user_data["payment_method"] = method
+    await query.edit_message_text(f"You selected *{method}* as your payment method.\nNow send the content you want to post.", parse_mode="Markdown")
 
-# TEXT
+# Dummy payment simulator
+async def simulate_payment_and_forward(update: Update, context: ContextTypes.DEFAULT_TYPE, content_type: str, data: dict):
+    user = update.effective_user
+    username = user.username or user.first_name
+    method = context.user_data.get("payment_method", "USDT")
+
+    if content_type == "text":
+        text = data["text"]
+        cost = round(len(text) * PRICES["text"], 2)
+        message = f"\U0001F4AC *Text Post from @{username}*\nPaid: ${cost} ({method})\n\n{text}"
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=message, parse_mode="Markdown")
+    elif content_type == "photo":
+        cost = PRICES["image"]
+        await context.bot.send_photo(chat_id=CHANNEL_ID, photo=data["file_id"], caption=f"Image from @{username} ($ {cost} paid via {method})")
+    elif content_type == "video":
+        cost = max(5.0, data["duration"] * PRICES["video"])
+        await context.bot.send_video(chat_id=CHANNEL_ID, video=data["file_id"], caption=f"Video from @{username} ($ {round(cost, 2)} paid via {method})")
+    elif content_type == "sticker":
+        await context.bot.send_sticker(chat_id=CHANNEL_ID, sticker=data["file_id"])
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=f"Sticker from @{username} ($7.00 paid via {method})")
+    # You can add more cases (voice, GIF etc.) similarly
+
+# Handle text
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    cost = len(text) * PRICES["text"]
+    await simulate_payment_and_forward(update, context, "text", {"text": update.message.text})
 
-    async def post():
-        user = update.effective_user
-        stars = usdt_to_stars(cost)
-        mention = get_user_mention(user)
-        formatted = f"{mention} paid {stars} ⭐️\n{text}"
-        await context.bot.send_message(chat_id=CHANNEL_ID, text=formatted)
-        await update.message.reply_text("✅ Your message has been posted!")
-
-    await request_payment(update, context, "text", {"text": text, "cost": cost}, post)
-
-# IMAGE
+# Handle photo
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo = update.message.photo[-1].file_id
-    caption = update.message.caption or ""
-    cost = PRICES["image"]
+    file_id = update.message.photo[-1].file_id
+    await simulate_payment_and_forward(update, context, "photo", {"file_id": file_id})
 
-    async def post():
-        mention = get_user_mention(update.effective_user)
-        stars = usdt_to_stars(cost)
-        text = f"{mention} paid {stars} ⭐️\n{caption}"
-        await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=text)
-        await update.message.reply_text("✅ Your image has been posted!")
-
-    await request_payment(update, context, "image", {"cost": cost}, post)
-
-# GIF
-async def handle_gif(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    gif = update.message.animation.file_id
-    caption = update.message.caption or ""
-    cost = PRICES["gif"]
-
-    async def post():
-        mention = get_user_mention(update.effective_user)
-        stars = usdt_to_stars(cost)
-        text = f"{mention} paid {stars} ⭐️\n{caption}"
-        await context.bot.send_animation(chat_id=CHANNEL_ID, animation=gif, caption=text)
-        await update.message.reply_text("✅ Your GIF has been posted!")
-
-    await request_payment(update, context, "gif", {"cost": cost}, post)
-
-# VOICE
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    voice = update.message.voice
-    duration = voice.duration
-    cost = duration * PRICES["voice"]
-
-    async def post():
-        mention = get_user_mention(update.effective_user)
-        stars = usdt_to_stars(cost)
-        caption = f"{mention} paid {stars} ⭐️ (Voice: {duration}s)"
-        await context.bot.send_voice(chat_id=CHANNEL_ID, voice=voice.file_id, caption=caption)
-        await update.message.reply_text("✅ Your voice note has been posted!")
-
-    await request_payment(update, context, "voice note", {"cost": cost}, post)
-
-# VIDEO
+# Handle video
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    video = update.message.video
-    duration = video.duration
-    cost = max(5.00, duration * PRICES["video"])
+    file_id = update.message.video.file_id
+    duration = update.message.video.duration
+    await simulate_payment_and_forward(update, context, "video", {"file_id": file_id, "duration": duration})
 
-    async def post():
-        mention = get_user_mention(update.effective_user)
-        stars = usdt_to_stars(cost)
-        caption = f"{mention} paid {stars} ⭐️ (Video: {duration}s)\n{update.message.caption or ''}"
-        await context.bot.send_video(chat_id=CHANNEL_ID, video=video.file_id, caption=caption)
-        await update.message.reply_text("✅ Your video has been posted!")
-
-    await request_payment(update, context, "video", {"cost": cost}, post)
-
-# STICKER
+# Handle sticker
 async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    sticker = update.message.sticker
-    cost = PRICES["sticker"]
+    file_id = update.message.sticker.file_id
+    await simulate_payment_and_forward(update, context, "sticker", {"file_id": file_id})
 
-    async def post():
-        mention = get_user_mention(update.effective_user)
-        stars = usdt_to_stars(cost)
-        caption = f"{mention} paid {stars} ⭐️ (Sticker)"
-        await context.bot.send_sticker(chat_id=CHANNEL_ID, sticker=sticker.file_id)
-        await context.bot.send_message(chat_id=CHANNEL_ID, text=caption)
-        await update.message.reply_text("✅ Your sticker has been posted!")
+# Flask route for health check
+@app.route("/")
+def index():
+    return "Bot is running!"
 
-    await request_payment(update, context, "sticker", {"cost": cost}, post)
+# Webhook route
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), bot_app.bot)
+    bot_app.update_queue.put_nowait(update)
+    return "OK"
 
-# Dummy Flask server for Koyeb
-flask_app = Flask(__name__)
+def setup_bot():
+    bot_app.add_handler(CommandHandler("start", start))
+    bot_app.add_handler(CallbackQueryHandler(payment_method_selected))
+    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    bot_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    bot_app.add_handler(MessageHandler(filters.VIDEO, handle_video))
+    bot_app.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
 
-@flask_app.route('/')
-def home():
-    return "Bot is alive!"
-
-def run_flask():
-    flask_app.run(host="0.0.0.0", port=8000)
-
-# Main function
-def main():
-    # Start Flask server
-    threading.Thread(target=run_flask).start()
-
-    # Start Telegram bot
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.ANIMATION, handle_gif))
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    app.add_handler(MessageHandler(filters.VIDEO, handle_video))
-    app.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
-
-    print("🚀 Bot started...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    import asyncio
+    setup_bot()
+    asyncio.run(bot_app.initialize())
+    asyncio.run(bot_app.bot.set_webhook(f"{BASE_URL}/{TOKEN}"))
+    bot_app.run_webhook(listen="0.0.0.0", port=8000, webhook_path=f"/{TOKEN}")
