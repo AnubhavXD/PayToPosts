@@ -127,15 +127,17 @@ async def post_init(app: Application):
 
 # Main entry
 if __name__ == "__main__":
-    import threading
+    import asyncio
 
     setup_bot()
 
-    # Start the bot in a separate thread
-    def run_bot():
-        bot_app.run_polling()  # or use .initialize() + .start() if you need webhook, see below
+    async def main():
+        await bot_app.initialize()
+        await post_init(bot_app)
+        await bot_app.start()
 
-    threading.Thread(target=run_bot).start()
+    asyncio.run(main())
 
-    # Run Flask app (Koyeb expects something to bind to 0.0.0.0:8000)
+    # Start Flask app to serve the webhook
     app.run(host="0.0.0.0", port=8000)
+
