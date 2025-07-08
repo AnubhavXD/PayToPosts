@@ -4,23 +4,24 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import logging
 
-# ❗ Hardcoded bot token, channel ID, and base URL — set yours here:
+# Hardcoded bot token, channel ID, and base URL
 TOKEN = "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438"
-CHANNEL_ID = "@paytoposts"  # e.g., "@yourchannel" or channel ID as int
-BASE_URL = "https://intensive-esther-animeharbour-95b7971a.koyeb.app"  
+CHANNEL_ID = "@paytoposts"
+BASE_URL = "https://intensive-esther-animeharbour-95b7971a.koyeb.app"
 
-# Prices
+# Prices in USDT
 PRICES = {
-    "text": 0.10,        # per character
+    "text": 0.10,
     "image": 7.00,
-    "voice": 0.50,       # per second
+    "voice": 0.50,
     "gif": 7.00,
-    "video": 1.00,       # per second (min $5.00)
+    "video": 1.00,
     "sticker": 7.00
 }
 
 # Logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Flask app
 app = Flask(__name__)
@@ -28,7 +29,7 @@ app = Flask(__name__)
 # Telegram bot application
 bot_app = Application.builder().token(TOKEN).build()
 
-# Start command handler
+# Command handler: /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = (
         "\U0001F916 *Welcome to PayToPosts Bot!*\n\n"
@@ -49,7 +50,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(message, reply_markup=reply_markup, parse_mode="Markdown")
 
-# Handle payment method selection
+# Callback for payment method selection
 async def payment_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -57,7 +58,7 @@ async def payment_method_selected(update: Update, context: ContextTypes.DEFAULT_
     context.user_data["payment_method"] = method
     await query.edit_message_text(f"You selected *{method}* as your payment method.\nNow send the content you want to post.", parse_mode="Markdown")
 
-# Simulated payment logic
+# Simulated payment + forward logic
 async def simulate_payment_and_forward(update: Update, context: ContextTypes.DEFAULT_TYPE, content_type: str, data: dict):
     user = update.effective_user
     username = user.username or user.first_name
@@ -68,17 +69,20 @@ async def simulate_payment_and_forward(update: Update, context: ContextTypes.DEF
         cost = round(len(text) * PRICES["text"], 2)
         message = f"\U0001F4AC *Text Post from @{username}*\nPaid: ${cost} ({method})\n\n{text}"
         await context.bot.send_message(chat_id=CHANNEL_ID, text=message, parse_mode="Markdown")
+
     elif content_type == "photo":
         cost = PRICES["image"]
         await context.bot.send_photo(chat_id=CHANNEL_ID, photo=data["file_id"], caption=f"Image from @{username} ($ {cost} paid via {method})")
+
     elif content_type == "video":
         cost = max(5.0, data["duration"] * PRICES["video"])
         await context.bot.send_video(chat_id=CHANNEL_ID, video=data["file_id"], caption=f"Video from @{username} ($ {round(cost, 2)} paid via {method})")
+
     elif content_type == "sticker":
         await context.bot.send_sticker(chat_id=CHANNEL_ID, sticker=data["file_id"])
         await context.bot.send_message(chat_id=CHANNEL_ID, text=f"Sticker from @{username} ($7.00 paid via {method})")
 
-# Handle different message types
+# Message Handlers
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await simulate_payment_and_forward(update, context, "text", {"text": update.message.text})
 
@@ -107,7 +111,7 @@ def webhook():
     bot_app.update_queue.put_nowait(update)
     return "OK"
 
-# Setup handlers
+# Add all handlers
 def setup_bot():
     bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(CallbackQueryHandler(payment_method_selected))
@@ -116,11 +120,12 @@ def setup_bot():
     bot_app.add_handler(MessageHandler(filters.VIDEO, handle_video))
     bot_app.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
 
-# Set webhook using post_init
+# Set webhook after app is ready
 async def post_init(app: Application):
     await app.bot.set_webhook(url=f"{BASE_URL}/{TOKEN}")
+    logger.info("Webhook has been set.")
 
-# Start the bot
+# Main entry
 if __name__ == "__main__":
     setup_bot()
     bot_app.post_init = post_init
