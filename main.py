@@ -1,13 +1,13 @@
 # main.py
-import os
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import logging
 
-TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_ID = os.getenv("CHANNEL_ID")
-BASE_URL = os.getenv("BASE_URL")
+# ✅ Hardcoded values (be cautious if pushing to GitHub)
+TOKEN = "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438"
+CHANNEL_ID = "@paytoposts"
+BASE_URL = "https://intensive-esther-animeharbour-95b7971a.koyeb.app"
 
 # Prices
 PRICES = {
@@ -22,7 +22,6 @@ PRICES = {
 logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
-
 bot_app = Application.builder().token(TOKEN).build()
 
 # Start command
@@ -75,33 +74,30 @@ async def simulate_payment_and_forward(update: Update, context: ContextTypes.DEF
         await context.bot.send_sticker(chat_id=CHANNEL_ID, sticker=data["file_id"])
         await context.bot.send_message(chat_id=CHANNEL_ID, text=f"Sticker from @{username} ($7.00 paid via {method})")
 
-# Handle text
+# Handlers
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await simulate_payment_and_forward(update, context, "text", {"text": update.message.text})
 
-# Handle photo
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_id = update.message.photo[-1].file_id
     await simulate_payment_and_forward(update, context, "photo", {"file_id": file_id})
 
-# Handle video
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_id = update.message.video.file_id
     duration = update.message.video.duration
     await simulate_payment_and_forward(update, context, "video", {"file_id": file_id, "duration": duration})
 
-# Handle sticker
 async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_id = update.message.sticker.file_id
     await simulate_payment_and_forward(update, context, "sticker", {"file_id": file_id})
 
-# Flask route for health check
+# Health check
 @app.route("/")
 def index():
     return "Bot is running!"
 
-# Webhook route
-@app.route("/webhook", methods=["POST"])
+# Webhook endpoint
+@app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot_app.bot)
     bot_app.update_queue.put_nowait(update)
@@ -119,5 +115,5 @@ if __name__ == '__main__':
     import asyncio
     setup_bot()
     asyncio.run(bot_app.initialize())
-    asyncio.run(bot_app.bot.set_webhook(f"{BASE_URL}/webhook"))
-    bot_app.run_webhook(listen="0.0.0.0", port=8000, webhook_path="/webhook")
+    asyncio.run(bot_app.bot.set_webhook(f"{BASE_URL}/{TOKEN}"))
+    bot_app.run_webhook(listen="0.0.0.0", port=8000, webhook_path=f"/{TOKEN}")
