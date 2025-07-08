@@ -160,9 +160,9 @@ def index():
     return "Bot is alive!"
 
 @app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
+async def webhook():
     update = Update.de_json(request.get_json(force=True), bot_app.bot)
-    bot_app.update_queue.put_nowait(update)
+    await bot_app.process_update(update)
     return "OK"
 
 def setup_bot():
@@ -187,8 +187,7 @@ if __name__ == "__main__":
         await bot_app.initialize()
         await post_init(bot_app)
         await bot_app.start()
-        await bot_app.updater.start_polling()
-        await bot_app.updater.wait_until_closed()
+        # No polling needed
 
     def run_flask():
         app.run(host="0.0.0.0", port=8000)
