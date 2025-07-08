@@ -132,19 +132,19 @@ if __name__ == "__main__":
 
     setup_bot()
 
-    async def main():
+    async def telegram_main():
         await bot_app.initialize()
         await post_init(bot_app)
         await bot_app.start()
-        await bot_app.updater.start_polling()  # just to keep the application alive
+        await bot_app.updater.start_polling()  # Keeps bot running
 
-    def run_telegram():
-        asyncio.run(main())
+    def run_telegram_bot():
+        asyncio.run(telegram_main())
 
-    # Run the bot in a separate thread
-    threading.Thread(target=run_telegram).start()
+    # Start Telegram bot in a new thread
+    threading.Thread(target=run_telegram_bot).start()
 
-    # Run the Flask app (this keeps the webhook endpoint live)
+    # Start Flask server (required for webhook)
     app.run(host="0.0.0.0", port=8000)
 
 
