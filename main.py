@@ -114,7 +114,14 @@ async def preview_content(update: Update, context: ContextTypes.DEFAULT_TYPE, co
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     cost = round(len(text) * PRICES["text"], 2)
-    await preview_content(update, context, "text", {"text": text}, f"📝 *Preview:*
+    await preview_content(
+    update,
+    context,
+    "text",
+    {"text": text},
+    f"📝 *Preview:*\n{text}"
+)
+
 
 {text}
 
