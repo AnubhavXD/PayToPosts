@@ -10,7 +10,7 @@ from telegram.ext import (
 )
 
 # === BOT CONFIG ===
-TOKEN = "YOUR_BOT_TOKEN_HERE"
+TOKEN = "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438"
 CHANNEL_ID = "@paytoposts"
 
 # Pricing (in USDT)
