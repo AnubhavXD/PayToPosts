@@ -1,214 +1,175 @@
 import os
+import threading
+from flask import Flask
 from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    MessageEntity
+    Update, InlineKeyboardMarkup, InlineKeyboardButton, MessageEntity, InputMediaPhoto
 )
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes
+    Application, CommandHandler, MessageHandler,
+    CallbackQueryHandler, filters, ContextTypes
 )
 
-# Bot and channel setup
-TOKEN = "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438"
+# === BOT CONFIG ===
+TOKEN = "YOUR_BOT_TOKEN_HERE"
 CHANNEL_ID = "@paytoposts"
 
-# Pricing in USDT
+# Pricing (in USDT)
 PRICES = {
-    "text": 0.10,         # per character
-    "image": 7.00,        # per image
-    "voice": 0.50,        # per second
-    "gif": 7.00,          # per gif
-    "video": 1.00,        # per second, min 5
-    "sticker": 7.00       # per sticker
+    "text": 0.10,     # per char
+    "image": 7.00,
+    "voice": 0.50,    # per second
+    "gif": 7.00,
+    "video": 1.00,    # per sec, min 5
+    "sticker": 7.00
 }
 
-# USDT to Stars conversion (1 Star = 0.01 USDT)
+# ========== FLASK SERVER ========== #
+flask_app = Flask(__name__)
+
+@flask_app.route("/")
+def home():
+    return "Bot is running", 200
+
+def run_flask():
+    flask_app.run(host="0.0.0.0", port=8000)
+
+# ========== UTILITIES ========== #
 def usdt_to_stars(usdt_amount):
     return int(usdt_amount / 0.01)
 
-# Get user mention
 def get_user_mention(user):
     return f"@{user.username}" if user.username else user.full_name
 
-# Start command
+# Temporary storage of pending payments
+pending_messages = {}
+
+# ========== HANDLERS ========== #
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Welcome to PayToPosts!\nSend a message or media and you'll be asked to pay with Stars ⭐️ to post it to the world! ( @PayToPosts )"
-    )
+    await update.message.reply_text("👋 Welcome! Send a message or media, and I’ll show you the cost in Stars or USDT. Then simulate a payment to post it!")
 
-# --- Handlers for Incoming Content ---
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ========== PAYMENT SIMULATION ========== #
+async def request_payment(update, context, content_type, details, preview_fn):
     user = update.effective_user
-    text = update.message.text
-    cost = len(text) * PRICES["text"]
+    cost = details["cost"]
     stars = usdt_to_stars(cost)
+    msg = f"{get_user_mention(user)}, your post costs:\n💸 {cost:.2f} USDT or {stars} ⭐️ Stars\n\nChoose a method to simulate payment:"
 
-    context.user_data["pending"] = {
-        "type": "text",
-        "content": text,
-        "cost": stars,
-        "user": get_user_mention(user)
-    }
+    # Store message temporarily
+    pending_messages[user.id] = {"type": content_type, "details": details}
 
-    await update.message.reply_text(
-        f"📝 This text costs {stars} ⭐️.\nDo you want to post it?",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Pay with Stars", callback_data="pay")]])
-    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💫 Pay with Stars", callback_data="pay_stars")],
+        [InlineKeyboardButton("💸 Pay with USDT (Simulated)", callback_data="pay_crypto")]
+    ])
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    photo_id = update.message.photo[-1].file_id
-    caption = update.message.caption or ""
-    stars = usdt_to_stars(PRICES["image"])
+    await preview_fn()
+    await update.message.reply_text(msg, reply_markup=keyboard)
 
-    context.user_data["pending"] = {
-        "type": "photo",
-        "file": photo_id,
-        "caption": caption,
-        "cost": stars,
-        "user": get_user_mention(user)
-    }
-
-    await update.message.reply_text(
-        f"🖼️ This image costs {stars} ⭐️.\nDo you want to post it?",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Pay with Stars", callback_data="pay")]])
-    )
-
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    voice = update.message.voice
-    stars = usdt_to_stars(voice.duration * PRICES["voice"])
-
-    context.user_data["pending"] = {
-        "type": "voice",
-        "file": voice.file_id,
-        "duration": voice.duration,
-        "cost": stars,
-        "user": get_user_mention(user)
-    }
-
-    await update.message.reply_text(
-        f"🎙️ This voice note ({voice.duration}s) costs {stars} ⭐️.\nDo you want to post it?",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Pay with Stars", callback_data="pay")]])
-    )
-
-async def handle_gif(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    gif_id = update.message.animation.file_id
-    caption = update.message.caption or ""
-    stars = usdt_to_stars(PRICES["gif"])
-
-    context.user_data["pending"] = {
-        "type": "gif",
-        "file": gif_id,
-        "caption": caption,
-        "cost": stars,
-        "user": get_user_mention(user)
-    }
-
-    await update.message.reply_text(
-        f"🎞️ This GIF costs {stars} ⭐️.\nDo you want to post it?",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Pay with Stars", callback_data="pay")]])
-    )
-
-async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    video = update.message.video
-    cost_usdt = max(5.0, video.duration * PRICES["video"])
-    stars = usdt_to_stars(cost_usdt)
-
-    context.user_data["pending"] = {
-        "type": "video",
-        "file": video.file_id,
-        "duration": video.duration,
-        "caption": update.message.caption or "",
-        "cost": stars,
-        "user": get_user_mention(user)
-    }
-
-    await update.message.reply_text(
-        f"🎥 This video ({video.duration}s) costs {stars} ⭐️.\nDo you want to post it?",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Pay with Stars", callback_data="pay")]])
-    )
-
-async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    stars = usdt_to_stars(PRICES["sticker"])
-
-    context.user_data["pending"] = {
-        "type": "sticker",
-        "file": update.message.sticker.file_id,
-        "cost": stars,
-        "user": get_user_mention(user)
-    }
-
-    await update.message.reply_text(
-        f"🧸 This sticker costs {stars} ⭐️.\nDo you want to post it?",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Pay with Stars", callback_data="pay")]])
-    )
-
-# --- Callback: Simulated Payment ---
+# ========== CALLBACKS ========== #
 async def handle_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    data = context.user_data.get("pending")
-    if not data:
-        await query.edit_message_text("❌ No pending post found.")
+    user = query.from_user
+    if user.id not in pending_messages:
+        await query.edit_message_text("⚠️ No pending message found.")
         return
 
-    kind = data["type"]
-    user = data["user"]
-    stars = data["cost"]
+    data = pending_messages.pop(user.id)
+    content_type = data["type"]
+    d = data["details"]
+    mention = get_user_mention(user)
 
-    if kind == "text":
-        caption = f"{user} paid {stars} ⭐️\n\n{data['content']}"
-        await context.bot.send_message(CHANNEL_ID, text=caption)
+    caption = f"{mention} paid {usdt_to_stars(d['cost'])} ⭐️ ({content_type.title()})"
+    if d.get("extra_caption"):
+        caption += f"\n{d['extra_caption']}"
 
-    elif kind == "photo":
-        caption = f"{user} paid {stars} ⭐️\n\n{data['caption']}"
-        await context.bot.send_photo(CHANNEL_ID, photo=data["file"], caption=caption)
+    # Post to channel
+    if content_type == "text":
+        caption = f"{mention} paid {usdt_to_stars(d['cost'])} ⭐️\n{d['text']}"
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=caption)
+    elif content_type == "photo":
+        await context.bot.send_photo(chat_id=CHANNEL_ID, photo=d["file_id"], caption=caption)
+    elif content_type == "voice":
+        await context.bot.send_voice(chat_id=CHANNEL_ID, voice=d["file_id"], caption=caption)
+    elif content_type == "gif":
+        await context.bot.send_animation(chat_id=CHANNEL_ID, animation=d["file_id"], caption=caption)
+    elif content_type == "video":
+        await context.bot.send_video(chat_id=CHANNEL_ID, video=d["file_id"], caption=caption)
+    elif content_type == "sticker":
+        await context.bot.send_sticker(chat_id=CHANNEL_ID, sticker=d["file_id"])
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=caption)
 
-    elif kind == "voice":
-        caption = f"{user} paid {stars} ⭐️ (Voice: {data['duration']}s)"
-        await context.bot.send_voice(CHANNEL_ID, voice=data["file"], caption=caption)
+    await query.edit_message_text("✅ Payment simulated! Your content has been posted.")
 
-    elif kind == "gif":
-        caption = f"{user} paid {stars} ⭐️\n\n{data['caption']}"
-        await context.bot.send_animation(CHANNEL_ID, animation=data["file"], caption=caption)
+# ========== MEDIA HANDLERS ========== #
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    cost = len(text) * PRICES["text"]
+    await request_payment(update, context, "text", {"text": text, "cost": cost}, lambda: None)
 
-    elif kind == "video":
-        caption = f"{user} paid {stars} ⭐️ (Video: {data['duration']}s)\n\n{data['caption']}"
-        await context.bot.send_video(CHANNEL_ID, video=data["file"], caption=caption)
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    photo_id = update.message.photo[-1].file_id
+    caption = update.message.caption or ""
+    cost = PRICES["image"]
+    await request_payment(update, context, "photo", {
+        "file_id": photo_id,
+        "cost": cost,
+        "extra_caption": caption
+    }, lambda: None)
 
-    elif kind == "sticker":
-        await context.bot.send_sticker(CHANNEL_ID, sticker=data["file"])
-        await context.bot.send_message(CHANNEL_ID, text=f"{user} paid {stars} ⭐️ (Sticker)")
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    voice = update.message.voice
+    cost = voice.duration * PRICES["voice"]
+    await request_payment(update, context, "voice", {
+        "file_id": voice.file_id,
+        "cost": cost
+    }, lambda: None)
 
-    await query.edit_message_text("✅ Payment confirmed! Your post has been published.")
+async def handle_gif(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    gif = update.message.animation
+    caption = update.message.caption or ""
+    cost = PRICES["gif"]
+    await request_payment(update, context, "gif", {
+        "file_id": gif.file_id,
+        "cost": cost,
+        "extra_caption": caption
+    }, lambda: None)
 
-# --- Main ---
-def main():
+async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    video = update.message.video
+    caption = update.message.caption or ""
+    cost = max(5.00, video.duration * PRICES["video"])
+    await request_payment(update, context, "video", {
+        "file_id": video.file_id,
+        "cost": cost,
+        "extra_caption": caption
+    }, lambda: None)
+
+async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    file_id = update.message.sticker.file_id
+    cost = PRICES["sticker"]
+    await request_payment(update, context, "sticker", {
+        "file_id": file_id,
+        "cost": cost
+    }, lambda: None)
+
+# ========== RUN ========== #
+def run_bot():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(handle_payment))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.ANIMATION, handle_gif))
     app.add_handler(MessageHandler(filters.VIDEO, handle_video))
     app.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
-    app.add_handler(CallbackQueryHandler(handle_payment, pattern="^pay$"))
 
-    print("🚀 Bot is running...")
+    print("🤖 Bot running...")
     app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    threading.Thread(target=run_flask).start()
+    run_bot()
