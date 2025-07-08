@@ -132,5 +132,6 @@ if __name__ == "__main__":
     bot_app.run_webhook(
         listen="0.0.0.0",
         port=8000,
-        webhook_path=f"/{TOKEN}"
+        path=f"/{TOKEN}"   # ✅ FIXED HERE
     )
+
