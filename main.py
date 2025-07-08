@@ -82,22 +82,64 @@ async def simulate_payment_and_forward(update: Update, context: ContextTypes.DEF
         await context.bot.send_sticker(chat_id=CHANNEL_ID, sticker=data["file_id"])
         await context.bot.send_message(chat_id=CHANNEL_ID, text=f"Sticker from @{username} ($7.00 paid via {method})")
 
+# Handle confirmations
+async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = context.user_data.get("pending_content")
+
+    if not data:
+        await query.edit_message_text("No pending content to confirm.")
+        return
+
+    if query.data == "confirm_post":
+        await query.edit_message_text("✅ Posting your content...")
+        await simulate_payment_and_forward(update, context, data["type"], data)
+    else:
+        await query.edit_message_text("❌ Post cancelled.")
+
+    context.user_data.pop("pending_content", None)
+
+# Preview handler generator
+async def preview_content(update: Update, context: ContextTypes.DEFAULT_TYPE, content_type: str, data: dict, preview_text: str):
+    context.user_data["pending_content"] = {"type": content_type, **data}
+    keyboard = [
+        [InlineKeyboardButton("✅ Confirm", callback_data="confirm_post")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_post")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(preview_text, reply_markup=reply_markup, parse_mode="Markdown")
+
 # Message Handlers
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await simulate_payment_and_forward(update, context, "text", {"text": update.message.text})
+    text = update.message.text
+    cost = round(len(text) * PRICES["text"], 2)
+    await preview_content(update, context, "text", {"text": text}, f"📝 *Preview:*
+
+{text}
+
+_Price: ${cost}_")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_id = update.message.photo[-1].file_id
-    await simulate_payment_and_forward(update, context, "photo", {"file_id": file_id})
+    await preview_content(update, context, "photo", {"file_id": file_id}, f"🖼️ *Preview: Image*
+
+_Price: ${PRICES['image']}_")
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_id = update.message.video.file_id
     duration = update.message.video.duration
-    await simulate_payment_and_forward(update, context, "video", {"file_id": file_id, "duration": duration})
+    cost = max(5.0, duration * PRICES["video"])
+    await preview_content(update, context, "video", {"file_id": file_id, "duration": duration}, f"🎥 *Preview: Video*
+
+_Duration: {duration}s_
+_Price: ${round(cost, 2)}_")
 
 async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_id = update.message.sticker.file_id
-    await simulate_payment_and_forward(update, context, "sticker", {"file_id": file_id})
+    await preview_content(update, context, "sticker", {"file_id": file_id}, f"🔖 *Preview: Sticker*
+
+_Price: ${PRICES['sticker']}_")
 
 # Health check route for Koyeb
 @app.route("/")
@@ -114,7 +156,8 @@ def webhook():
 # Add all handlers
 def setup_bot():
     bot_app.add_handler(CommandHandler("start", start))
-    bot_app.add_handler(CallbackQueryHandler(payment_method_selected))
+    bot_app.add_handler(CallbackQueryHandler(payment_method_selected, pattern="^pay_"))
+    bot_app.add_handler(CallbackQueryHandler(handle_confirmation, pattern="^(confirm_post|cancel_post)$"))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     bot_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     bot_app.add_handler(MessageHandler(filters.VIDEO, handle_video))
@@ -142,12 +185,5 @@ if __name__ == "__main__":
     def run_flask():
         app.run(host="0.0.0.0", port=8000)
 
-    # Start Flask in a separate thread
     threading.Thread(target=run_flask).start()
-
-    # Run the bot in the main event loop
     asyncio.run(start_bot())
-
-
-
-
