@@ -12,8 +12,8 @@ from telegram.ext import (
 # Apply nested asyncio support
 nest_asyncio.apply()
 
-# Bot Configuration
-TOKEN = os.getenv("BOT_TOKEN", "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438")
+# 🔒 Bot Configuration (Hardcoded)
+TOKEN = "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438"
 CHANNEL_ID = "@paytoposts"
 BASE_URL = "https://intensive-esther-animeharbour-95b7971a.koyeb.app"
 
@@ -26,13 +26,16 @@ PRICES = {
     "sticker": 7.00
 }
 
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Flask App
+# Flask App and Telegram App
 app = Flask(__name__)
 loop = asyncio.get_event_loop()
 bot_app = Application.builder().token(TOKEN).concurrent_updates(True).build()
+
+# User state & cache
 user_state = {}
 user_preview_cache = {}
 
@@ -176,8 +179,7 @@ def main():
     loop.run_until_complete(bot_app.initialize())
     loop.run_until_complete(bot_app.bot.set_webhook(url=f"{BASE_URL}/{TOKEN}"))
     loop.run_until_complete(bot_app.start())
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-
+    app.run(host="0.0.0.0", port=8080)
 
 if __name__ == "__main__":
     main()
