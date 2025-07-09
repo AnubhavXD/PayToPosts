@@ -1,12 +1,16 @@
 import os
 import logging
+import asyncio
+import nest_asyncio  # ✅ Helps avoid "event loop closed" error
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters,
     ContextTypes, CallbackQueryHandler
 )
-import asyncio
+
+# Apply nested asyncio support
+nest_asyncio.apply()
 
 # Bot Configuration
 TOKEN = os.getenv("BOT_TOKEN", "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438")
@@ -25,7 +29,9 @@ PRICES = {
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Flask App
 app = Flask(__name__)
+loop = asyncio.get_event_loop()
 bot_app = Application.builder().token(TOKEN).concurrent_updates(True).build()
 user_state = {}
 user_preview_cache = {}
@@ -144,12 +150,12 @@ async def handle_gif(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @app.route("/")
 def index():
-    return "Bot is alive!"
+    return "✅ Bot is alive!"
 
 @app.route(f"/{TOKEN}", methods=["POST"])
-async def webhook():
+def webhook():
     update = Update.de_json(request.get_json(force=True), bot_app.bot)
-    await bot_app.process_update(update)
+    loop.create_task(bot_app.process_update(update))
     return "OK"
 
 # ------------------ Initialization ------------------
@@ -165,12 +171,12 @@ def setup_bot():
     bot_app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     bot_app.add_handler(MessageHandler(filters.ANIMATION, handle_gif))
 
-async def main():
+def main():
     setup_bot()
-    await bot_app.initialize()
-    await bot_app.bot.set_webhook(url=f"{BASE_URL}/{TOKEN}")
-    await bot_app.start()
+    loop.run_until_complete(bot_app.initialize())
+    loop.run_until_complete(bot_app.bot.set_webhook(url=f"{BASE_URL}/{TOKEN}"))
+    loop.run_until_complete(bot_app.start())
     app.run(host="0.0.0.0", port=8000)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
