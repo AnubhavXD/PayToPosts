@@ -1,15 +1,17 @@
 import os
+import logging
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-import logging
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, filters,
+    ContextTypes, CallbackQueryHandler
+)
 import asyncio
-import threading
 
 # Bot Configuration
 TOKEN = os.getenv("BOT_TOKEN", "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438")
 CHANNEL_ID = "@paytoposts"
-BASE_URL = "https://intensive-esther-animeharbour-95b7971a.koyeb.app"  # Replace with your actual URL
+BASE_URL = "https://intensive-esther-animeharbour-95b7971a.koyeb.app"
 
 PRICES = {
     "text": 0.10,
@@ -24,11 +26,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-bot_app = Application.builder().token(TOKEN).build()
+bot_app = Application.builder().token(TOKEN).concurrent_updates(True).build()
 user_state = {}
 user_preview_cache = {}
 
-# /start command
+# ------------------ Bot Handlers ------------------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_state[user_id] = "awaiting_payment"
@@ -47,64 +50,53 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# Payment method selection
 async def payment_method_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     method = query.data.split("_")[1].upper()
-
     user_state[user_id] = "awaiting_content"
     context.user_data["payment_method"] = method
-
     await query.edit_message_text(f"✅ *{method} selected.* Now send your content (text/photo/video/etc).", parse_mode="Markdown")
 
-# Preview content before confirmation
 async def preview_content(update, context, content_type, data, caption):
     user_id = update.effective_user.id
     if user_state.get(user_id) != "awaiting_content":
         return
-
     user_preview_cache[user_id] = (content_type, data, context.user_data.get("payment_method", "USDT"))
-
     keyboard = [[
         InlineKeyboardButton("✅ Confirm", callback_data="confirm"),
         InlineKeyboardButton("❌ Cancel", callback_data="cancel")
     ]]
-
+    markup = InlineKeyboardMarkup(keyboard)
     if content_type == "text":
-        await update.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text(caption, reply_markup=markup, parse_mode="Markdown")
     elif content_type == "photo":
-        await update.message.reply_photo(photo=data["file_id"], caption=caption, reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.message.reply_photo(photo=data["file_id"], caption=caption, reply_markup=markup)
     elif content_type == "video":
-        await update.message.reply_video(video=data["file_id"], caption=caption, reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.message.reply_video(video=data["file_id"], caption=caption, reply_markup=markup)
     elif content_type == "sticker":
         await update.message.reply_sticker(sticker=data["file_id"])
-        await update.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.message.reply_text(caption, reply_markup=markup)
     elif content_type == "voice":
-        await update.message.reply_voice(voice=data["file_id"], caption=caption, reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.message.reply_voice(voice=data["file_id"], caption=caption, reply_markup=markup)
     elif content_type == "gif":
-        await update.message.reply_animation(animation=data["file_id"], caption=caption, reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.message.reply_animation(animation=data["file_id"], caption=caption, reply_markup=markup)
 
-# Confirm / Cancel
 async def confirm_or_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-
     if query.data == "cancel":
         user_preview_cache.pop(user_id, None)
         user_state[user_id] = "awaiting_payment"
         await query.edit_message_text("❌ Canceled.")
         return
-
     if user_id not in user_preview_cache:
         await query.edit_message_text("⚠️ Nothing to confirm.")
         return
-
     content_type, data, method = user_preview_cache.pop(user_id)
     username = query.from_user.username or query.from_user.first_name
-
     if content_type == "text":
         text = data["text"]
         cost = round(len(text) * PRICES["text"], 2)
@@ -125,11 +117,11 @@ async def confirm_or_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_voice(chat_id=CHANNEL_ID, voice=data["file_id"], caption=f"🎙️ from @{username} (${cost} via {method})")
     elif content_type == "gif":
         await context.bot.send_animation(chat_id=CHANNEL_ID, animation=data["file_id"], caption=f"🎞️ from @{username} ($7.00 via {method})")
-
     await query.edit_message_text("✅ Published!")
     user_state[user_id] = "awaiting_payment"
 
-# Message Handlers
+# ------------------ Message Handlers ------------------
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await preview_content(update, context, "text", {"text": update.message.text}, f"📝 *Preview:* {update.message.text}")
 
@@ -148,6 +140,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_gif(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await preview_content(update, context, "gif", {"file_id": update.message.animation.file_id}, "🎞️ *Preview: GIF*")
 
+# ------------------ Flask Webhook ------------------
+
 @app.route("/")
 def index():
     return "Bot is alive!"
@@ -157,6 +151,8 @@ async def webhook():
     update = Update.de_json(request.get_json(force=True), bot_app.bot)
     await bot_app.process_update(update)
     return "OK"
+
+# ------------------ Initialization ------------------
 
 def setup_bot():
     bot_app.add_handler(CommandHandler("start", start))
@@ -169,20 +165,12 @@ def setup_bot():
     bot_app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     bot_app.add_handler(MessageHandler(filters.ANIMATION, handle_gif))
 
-async def post_init(app: Application):
-    await app.bot.set_webhook(url=f"{BASE_URL}/{TOKEN}")
-    logger.info("Webhook has been set.")
-
-def run_flask():
+async def main():
+    setup_bot()
+    await bot_app.initialize()
+    await bot_app.bot.set_webhook(url=f"{BASE_URL}/{TOKEN}")
+    await bot_app.start()
     app.run(host="0.0.0.0", port=8000)
 
 if __name__ == "__main__":
-    setup_bot()
-
-    def runner():
-        asyncio.run(bot_app.initialize())
-        asyncio.run(post_init(bot_app))
-        asyncio.run(bot_app.start())
-
-    threading.Thread(target=run_flask).start()
-    threading.Thread(target=runner).start()
+    asyncio.run(main())
