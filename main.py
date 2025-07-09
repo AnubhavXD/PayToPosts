@@ -1,7 +1,7 @@
 import os
 import logging
 import asyncio
-import nest_asyncio  # ✅ Helps avoid "event loop closed" error
+import nest_asyncio
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -9,11 +9,11 @@ from telegram.ext import (
     ContextTypes, CallbackQueryHandler
 )
 
-# Apply nested asyncio support
+# ✅ Apply event loop patch
 nest_asyncio.apply()
 
-# 🔒 Bot Configuration (Hardcoded)
-TOKEN = "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438"
+# 🔐 Configuration (No external env)
+BOT_TOKEN = "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438"
 CHANNEL_ID = "@paytoposts"
 BASE_URL = "https://intensive-esther-animeharbour-95b7971a.koyeb.app"
 
@@ -26,20 +26,20 @@ PRICES = {
     "sticker": 7.00
 }
 
-# Logging setup
+# ✅ Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Flask App and Telegram App
+# ✅ Flask App
 app = Flask(__name__)
 loop = asyncio.get_event_loop()
-bot_app = Application.builder().token(TOKEN).concurrent_updates(True).build()
 
-# User state & cache
+# ✅ Telegram App
+bot_app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
 user_state = {}
 user_preview_cache = {}
 
-# ------------------ Bot Handlers ------------------
+# ------------------ Handlers ------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -149,19 +149,19 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_gif(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await preview_content(update, context, "gif", {"file_id": update.message.animation.file_id}, "🎞️ *Preview: GIF*")
 
-# ------------------ Flask Webhook ------------------
+# ------------------ Webhook & Flask ------------------
 
 @app.route("/")
-def index():
-    return "✅ Bot is alive!"
+def home():
+    return "✅ Bot is alive and running!"
 
-@app.route(f"/{TOKEN}", methods=["POST"])
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot_app.bot)
     loop.create_task(bot_app.process_update(update))
     return "OK"
 
-# ------------------ Initialization ------------------
+# ------------------ Setup & Start ------------------
 
 def setup_bot():
     bot_app.add_handler(CommandHandler("start", start))
@@ -177,9 +177,9 @@ def setup_bot():
 def main():
     setup_bot()
     loop.run_until_complete(bot_app.initialize())
-    loop.run_until_complete(bot_app.bot.set_webhook(url=f"{BASE_URL}/{TOKEN}"))
+    loop.run_until_complete(bot_app.bot.set_webhook(url=f"{BASE_URL}/{BOT_TOKEN}"))
     loop.run_until_complete(bot_app.start())
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
 if __name__ == "__main__":
     main()
