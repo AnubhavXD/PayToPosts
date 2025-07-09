@@ -1,5 +1,5 @@
-import os
 import logging
+import os
 import asyncio
 import nest_asyncio
 from flask import Flask, request
@@ -9,14 +9,12 @@ from telegram.ext import (
     ContextTypes, CallbackQueryHandler
 )
 
-# ✅ Apply event loop patch
-nest_asyncio.apply()
-
-# 🔐 Configuration (No external env)
-BOT_TOKEN = "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438"
-CHANNEL_ID = "@paytoposts"
+# ------------------ Config ------------------
+TOKEN = "7789956834:AAG4FYY5mV8Qgytw_ZRBR0_O---Zbqz4438"
 BASE_URL = "https://intensive-esther-animeharbour-95b7971a.koyeb.app"
+CHANNEL_ID = "@paytoposts"
 
+# Payment Prices
 PRICES = {
     "text": 0.10,
     "image": 7.00,
@@ -26,22 +24,25 @@ PRICES = {
     "sticker": 7.00
 }
 
-# ✅ Logging
-logging.basicConfig(level=logging.INFO)
+# ------------------ Setup ------------------
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-# ✅ Flask App
-app = Flask(__name__)
+nest_asyncio.apply()
 loop = asyncio.get_event_loop()
+app = Flask(__name__)
+bot_app = Application.builder().token(TOKEN).concurrent_updates(True).build()
 
-# ✅ Telegram App
-bot_app = Application.builder().token(BOT_TOKEN).concurrent_updates(True).build()
 user_state = {}
 user_preview_cache = {}
 
-# ------------------ Handlers ------------------
+# ------------------ Bot Handlers ------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"/start triggered by {update.effective_user.id}")
     user_id = update.effective_user.id
     user_state[user_id] = "awaiting_payment"
     keyboard = [[
@@ -66,7 +67,7 @@ async def payment_method_selected(update: Update, context: ContextTypes.DEFAULT_
     method = query.data.split("_")[1].upper()
     user_state[user_id] = "awaiting_content"
     context.user_data["payment_method"] = method
-    await query.edit_message_text(f"✅ *{method} selected.* Now send your content (text/photo/video/etc).", parse_mode="Markdown")
+    await query.edit_message_text(f"✅ *{method} selected.* Now send your content.", parse_mode="Markdown")
 
 async def preview_content(update, context, content_type, data, caption):
     user_id = update.effective_user.id
@@ -149,21 +150,21 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_gif(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await preview_content(update, context, "gif", {"file_id": update.message.animation.file_id}, "🎞️ *Preview: GIF*")
 
-# ------------------ Webhook & Flask ------------------
+# ------------------ Webhook Routes ------------------
 
 @app.route("/")
 def home():
-    return "✅ Bot is alive and running!"
+    return "✅ Bot is alive!"
 
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
+@app.route(f"/{TOKEN}", methods=["POST"])
+def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), bot_app.bot)
     loop.create_task(bot_app.process_update(update))
     return "OK"
 
-# ------------------ Setup & Start ------------------
+# ------------------ Start Bot ------------------
 
-def setup_bot():
+def setup_handlers():
     bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(CallbackQueryHandler(payment_method_selected, pattern="^pay_"))
     bot_app.add_handler(CallbackQueryHandler(confirm_or_cancel, pattern="^(confirm|cancel)$"))
@@ -175,11 +176,11 @@ def setup_bot():
     bot_app.add_handler(MessageHandler(filters.ANIMATION, handle_gif))
 
 def main():
-    setup_bot()
+    setup_handlers()
     loop.run_until_complete(bot_app.initialize())
-    loop.run_until_complete(bot_app.bot.set_webhook(url=f"{BASE_URL}/{BOT_TOKEN}"))
+    loop.run_until_complete(bot_app.bot.set_webhook(url=f"{BASE_URL}/{TOKEN}"))
     loop.run_until_complete(bot_app.start())
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
 
 if __name__ == "__main__":
     main()
