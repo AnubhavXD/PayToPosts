@@ -176,7 +176,8 @@ def main():
     loop.run_until_complete(bot_app.initialize())
     loop.run_until_complete(bot_app.bot.set_webhook(url=f"{BASE_URL}/{TOKEN}"))
     loop.run_until_complete(bot_app.start())
-    app.run(host="0.0.0.0", port=8000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
 
 if __name__ == "__main__":
     main()
